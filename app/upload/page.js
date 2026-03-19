@@ -2,15 +2,16 @@
 
 import { useState, useRef } from "react";
 import { uploadCSV } from "@/services/api";
-import { UploadCloud, FileText, BarChart3, List, Hash, Loader2 } from "lucide-react";
+import { UploadCloud, FileText, BarChart3, List, Hash, Loader2, X, Check, AlertCircle } from "lucide-react";
 import { 
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer 
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell
 } from "recharts";
 
 export default function UploadPage() {
   const [file, setFile] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
   const [analysis, setAnalysis] = useState(null);
+  const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef(null);
 
   const handleFileChange = (e) => {
@@ -19,8 +20,20 @@ export default function UploadPage() {
     }
   };
 
+  const handleDrag = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === "dragenter" || e.type === "dragover") {
+      setDragActive(true);
+    } else if (e.type === "dragleave") {
+      setDragActive(false);
+    }
+  };
+
   const handleDrop = (e) => {
     e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       setFile(e.dataTransfer.files[0]);
     }
@@ -35,115 +48,164 @@ export default function UploadPage() {
       setAnalysis(result);
     } catch (err) {
       console.error("Upload failed:", err);
-      alert("Failed to analyze the file. Please ensure it's a valid CSV.");
     } finally {
       setIsUploading(false);
     }
   };
 
+  const resetUpload = () => {
+    setAnalysis(null);
+    setFile(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const formatNumber = (num) => {
+    if (num === null || num === undefined) return '—';
+    if (num >= 1e6) return `${(num / 1e6).toFixed(1)}M`;
+    if (num >= 1e3) return `${(num / 1e3).toFixed(1)}K`;
+    return num.toLocaleString();
+  };
+
+  const colors = ['#3b82f6', '#8b5cf6', '#ec4899', '#f43f5e', '#f97316', '#eab308'];
+
   const renderNumericCard = (col) => (
-    <div key={col.column} className="glass-panel p-5 rounded-xl border border-border flex flex-col">
-      <div className="flex items-center gap-2 mb-4">
-        <Hash className="w-5 h-5 text-blue-500" />
-        <h3 className="font-semibold text-lg">{col.column}</h3>
-        <span className="ml-auto text-xs bg-blue-500/20 text-blue-400 px-2 py-1 rounded">Numeric</span>
+    <div key={col.column} className="bg-card rounded-2xl border border-border/50 overflow-hidden hover:shadow-md transition-shadow">
+      <div className="px-5 py-4 border-b border-border/50 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Hash className="w-4 h-4 text-blue-500" />
+          <h3 className="font-medium text-sm text-foreground">{col.column}</h3>
+        </div>
+        <span className="text-xs bg-blue-500/10 text-blue-600 px-2 py-0.5 rounded-full font-medium">Numeric</span>
       </div>
       
-      <div className="grid grid-cols-3 gap-4 mb-4 mt-auto">
-        <div className="bg-background/50 p-3 rounded-lg text-center">
-          <div className="text-xs text-muted-foreground uppercase mb-1">Mean</div>
-          <div className="font-mono text-sm font-medium">{col.mean !== null ? col.mean.toLocaleString(undefined, {maximumFractionDigits: 2}) : 'N/A'}</div>
+      <div className="p-5 space-y-4">
+        <div className="grid grid-cols-3 gap-2">
+          <div className="bg-muted/30 rounded-xl p-3 text-center">
+            <div className="text-xs text-muted-foreground/70 mb-1">Mean</div>
+            <div className="font-mono text-sm font-medium text-foreground">
+              {col.mean !== null ? formatNumber(col.mean) : '—'}
+            </div>
+          </div>
+          <div className="bg-muted/30 rounded-xl p-3 text-center">
+            <div className="text-xs text-muted-foreground/70 mb-1">Max</div>
+            <div className="font-mono text-sm font-medium text-foreground">
+              {col.max !== null ? formatNumber(col.max) : '—'}
+            </div>
+          </div>
+          <div className="bg-muted/30 rounded-xl p-3 text-center">
+            <div className="text-xs text-muted-foreground/70 mb-1">Min</div>
+            <div className="font-mono text-sm font-medium text-foreground">
+              {col.min !== null ? formatNumber(col.min) : '—'}
+            </div>
+          </div>
         </div>
-        <div className="bg-background/50 p-3 rounded-lg text-center">
-          <div className="text-xs text-muted-foreground uppercase mb-1">Max</div>
-          <div className="font-mono text-sm font-medium">{col.max !== null ? col.max.toLocaleString(undefined, {maximumFractionDigits: 2}) : 'N/A'}</div>
-        </div>
-        <div className="bg-background/50 p-3 rounded-lg text-center">
-          <div className="text-xs text-muted-foreground uppercase mb-1">Min</div>
-          <div className="font-mono text-sm font-medium">{col.min !== null ? col.min.toLocaleString(undefined, {maximumFractionDigits: 2}) : 'N/A'}</div>
+        
+        <div className="pt-2 border-t border-border/50">
+          <div className="flex justify-between text-xs text-muted-foreground/70">
+            <span>Std Dev</span>
+            <span className="font-mono text-foreground">
+              {col.std_dev !== null ? formatNumber(col.std_dev) : '—'}
+            </span>
+          </div>
         </div>
       </div>
     </div>
   );
 
   const renderCategoricalCard = (col) => {
-    if (col.unique_count > 100 || !col.top_categories.length) {
-      return (
-        <div key={col.column} className="glass-panel p-5 rounded-xl border border-border flex flex-col">
-          <div className="flex items-center gap-2 mb-4">
-            <List className="w-5 h-5 text-purple-500" />
-            <h3 className="font-semibold text-lg">{col.column}</h3>
-            <span className="ml-auto text-xs bg-purple-500/20 text-purple-400 px-2 py-1 rounded">Categorical</span>
-          </div>
-          <div className="mt-auto bg-background/50 p-4 rounded-lg flex flex-col items-center justify-center text-center">
-            <div className="text-2xl font-bold mb-1">{col.unique_count.toLocaleString()}</div>
-            <div className="text-sm text-muted-foreground">Unique Identifiers / Texts</div>
-            <div className="text-xs text-muted-foreground mt-2">(Too many unique values to chart)</div>
-          </div>
-        </div>
-      );
-    }
-
+    const hasTooManyUnique = col.unique_count > 100 || !col.top_categories?.length;
+    
     return (
-      <div key={col.column} className="glass-panel p-5 rounded-xl border border-border flex flex-col min-h-[300px] lg:col-span-2">
-        <div className="flex items-center gap-2 mb-4">
-          <BarChart3 className="w-5 h-5 text-green-500" />
-          <h3 className="font-semibold text-lg">{col.column}</h3>
-          <span className="ml-auto text-xs bg-green-500/20 text-green-400 px-2 py-1 rounded">Categorical</span>
-          <span className="text-xs text-muted-foreground ml-2">{col.unique_count} unique</span>
+      <div key={col.column} className={`bg-card rounded-2xl border border-border/50 overflow-hidden hover:shadow-md transition-shadow ${!hasTooManyUnique ? 'lg:col-span-2' : ''}`}>
+        <div className="px-5 py-4 border-b border-border/50 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <List className="w-4 h-4 text-purple-500" />
+            <h3 className="font-medium text-sm text-foreground">{col.column}</h3>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground/70">{col.unique_count} unique</span>
+            <span className="text-xs bg-purple-500/10 text-purple-600 px-2 py-0.5 rounded-full font-medium">Categorical</span>
+          </div>
         </div>
         
-        <div className="flex-1 w-full min-h-[200px] mt-2">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={col.top_categories} layout="vertical" margin={{ left: 50, right: 20 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
-              <XAxis type="number" tick={{ fill: '#6b7280' }} axisLine={{ stroke: '#e2e8f0' }} />
-              <YAxis 
-                type="category" 
-                dataKey="name" 
-                tick={{ fill: '#6b7280', fontSize: 12 }} 
-                axisLine={{ stroke: '#e2e8f0' }} 
-                tickLine={false}
-                tickFormatter={(v) => v.length > 10 ? v.substring(0, 10) + '...' : v}
-              />
-              <Tooltip 
-                contentStyle={{ backgroundColor: '#ffffff', borderColor: '#e2e8f0', color: '#111827', borderRadius: '8px', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                cursor={{ fill: 'rgba(0,0,0,0.04)' }}
-              />
-              <Bar dataKey="count" fill="#10b981" radius={[0, 4, 4, 0]} barSize={20} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
+        {hasTooManyUnique ? (
+          <div className="p-5 flex flex-col items-center justify-center text-center min-h-37.5">
+            <div className="w-10 h-10 rounded-full bg-muted/30 flex items-center justify-center mb-2">
+              <AlertCircle className="w-5 h-5 text-muted-foreground/50" />
+            </div>
+            <div className="text-2xl font-semibold text-foreground mb-1">{col.unique_count.toLocaleString()}</div>
+            <div className="text-xs text-muted-foreground/70">unique values</div>
+          </div>
+        ) : (
+          <div className="p-5">
+            <div className="w-full h-50">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={col.top_categories} layout="vertical" margin={{ left: 20, right: 20 }}>
+                  <XAxis type="number" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={{ stroke: '#e2e8f0' }} tickLine={false} />
+                  <YAxis 
+                    type="category" 
+                    dataKey="name" 
+                    tick={{ fill: '#94a3b8', fontSize: 11 }} 
+                    axisLine={{ stroke: '#e2e8f0' }} 
+                    tickLine={false}
+                    tickFormatter={(v) => v.length > 12 ? v.substring(0, 10) + '…' : v}
+                    width={80}
+                  />
+                  <Tooltip
+                    content={({ active, payload }) => {
+                      if (active && payload && payload.length) {
+                        return (
+                          <div className="bg-card px-4 py-3 rounded-xl border border-border/50 shadow-lg text-sm">
+                            <p className="text-foreground font-medium mb-1">{payload[0].payload.name}</p>
+                            <p className="text-muted-foreground text-xs">{payload[0].value} occurrences</p>
+                          </div>
+                        );
+                      }
+                      return null;
+                    }}
+                    cursor={{ fill: '#f8fafc' }}
+                  />
+                  <Bar dataKey="count" radius={[0, 6, 6, 0]} barSize={20}>
+                    {col.top_categories.map((_, index) => (
+                      <Cell key={`cell-${index}`} fill={colors[index % colors.length]} fillOpacity={0.8} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
       </div>
     );
   };
 
   return (
-    <div className="pb-10">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary to-accent">
-          Dynamic Data Analysis
+    <div className="space-y-8 pb-10">
+      {/* Header */}
+      <div>
+        <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-foreground">
+          Data Analysis
         </h1>
-        <p className="text-muted-foreground mt-1">
-          Upload any CSV file. The system will automatically parse the columns and generate relevant insights.
+        <p className="text-sm text-muted-foreground/80 mt-1">
+          Upload any CSV file for instant column analysis and insights
         </p>
       </div>
 
       {!analysis ? (
+        /* Upload Area */
         <div 
-          className="glass-panel border-2 border-dashed border-border hover:border-primary/50 transition-colors rounded-2xl p-12 flex flex-col items-center justify-center min-h-[400px]"
-          onDragOver={(e) => e.preventDefault()}
+          className={`
+            relative bg-card rounded-2xl border-2 border-dashed p-12 flex flex-col items-center justify-center min-h-112.5 text-center
+            transition-all duration-200
+            ${dragActive ? 'border-primary bg-primary/5' : 'border-border/50 hover:border-primary/30'}
+          `}
+          onDragEnter={handleDrag}
+          onDragLeave={handleDrag}
+          onDragOver={handleDrag}
           onDrop={handleDrop}
         >
-          <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center mb-6">
-            <UploadCloud className="w-10 h-10 text-primary" />
-          </div>
-          
-          <h3 className="text-2xl font-bold mb-2">Upload your dataset</h3>
-          <p className="text-muted-foreground text-center max-w-md mb-8">
-            Drag and drop your CSV file here, or click to browse. The engine will dynamically scan your columns and generate a customized dashboard.
-          </p>
-          
           <input 
             type="file" 
             accept=".csv" 
@@ -152,54 +214,101 @@ export default function UploadPage() {
             onChange={handleFileChange}
           />
           
-          <div className="flex gap-4 items-center">
-            <button 
-              onClick={() => fileInputRef.current?.click()}
-              className="px-6 py-3 bg-secondary hover:bg-secondary/80 text-secondary-foreground rounded-xl font-medium transition-colors"
-            >
-              Browse Files
-            </button>
-            
-            {file && (
+          <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mb-6">
+            <UploadCloud className="w-6 h-6 text-primary" />
+          </div>
+          
+          <h3 className="text-xl font-semibold text-foreground mb-2">
+            {file ? 'File ready to upload' : 'Upload your dataset'}
+          </h3>
+          
+          <p className="text-sm text-muted-foreground/70 max-w-md mb-6">
+            {file 
+              ? `Ready to analyze "${file.name}"`
+              : 'Drag and drop your CSV file here, or click to browse'
+            }
+          </p>
+          
+          <div className="flex flex-col sm:flex-row gap-3">
+            {!file ? (
               <button 
-                onClick={handleUpload}
-                disabled={isUploading}
-                className="px-6 py-3 bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl font-medium transition-colors flex items-center gap-2 disabled:opacity-70"
+                onClick={() => fileInputRef.current?.click()}
+                className="px-5 py-2.5 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:bg-primary/90 transition-all duration-200 shadow-sm hover:shadow-md active:scale-[0.98]"
               >
-                {isUploading ? <Loader2 className="w-5 h-5 animate-spin" /> : <BarChart3 className="w-5 h-5" />}
-                {isUploading ? "Analyzing..." : "Generate Dashboard"}
+                Browse Files
               </button>
+            ) : (
+              <>
+                <button 
+                  onClick={() => setFile(null)}
+                  className="px-5 py-2.5 bg-transparent border border-border/50 text-muted-foreground hover:text-foreground rounded-xl text-sm font-medium transition-all duration-200 flex items-center gap-2"
+                >
+                  <X className="w-4 h-4" />
+                  Cancel
+                </button>
+                <button 
+                  onClick={handleUpload}
+                  disabled={isUploading}
+                  className="px-5 py-2.5 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:bg-primary/90 transition-all duration-200 shadow-sm hover:shadow-md active:scale-[0.98] disabled:opacity-50 disabled:active:scale-100 flex items-center gap-2"
+                >
+                  {isUploading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Analyzing...
+                    </>
+                  ) : (
+                    <>
+                      <BarChart3 className="w-4 h-4" />
+                      Generate Dashboard
+                    </>
+                  )}
+                </button>
+              </>
             )}
           </div>
           
           {file && (
-            <div className="mt-8 flex items-center gap-2 text-sm font-medium bg-background/50 px-4 py-2 rounded-lg border border-border">
-              <FileText className="w-4 h-4 text-accent" />
-              {file.name} ({(file.size / 1024).toFixed(1)} KB)
+            <div className="mt-6 flex items-center gap-3 text-sm bg-muted/30 px-4 py-3 rounded-xl border border-border/50">
+              <FileText className="w-4 h-4 text-muted-foreground" />
+              <span className="text-foreground font-medium">{file.name}</span>
+              <span className="text-xs text-muted-foreground/70 px-2 py-0.5 bg-background rounded-full">
+                {(file.size / 1024).toFixed(1)} KB
+              </span>
             </div>
           )}
         </div>
       ) : (
-        <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center p-6 glass-panel rounded-xl border border-border">
-            <div>
-              <h2 className="text-xl font-bold flex items-center gap-2">
-                <FileText className="w-6 h-6 text-primary" />
-                {analysis.filename}
-              </h2>
-              <p className="text-muted-foreground mt-1">
-                Parsed {analysis.row_count.toLocaleString()} rows and {analysis.columns.length} columns successfully.
-              </p>
+        /* Analysis Results */
+        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          {/* File Info Bar */}
+          <div className="bg-card rounded-2xl border border-border/50 p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                <Check className="w-4 h-4 text-primary" />
+              </div>
+              <div>
+                <h2 className="text-base font-medium text-foreground flex items-center gap-2">
+                  {analysis.filename}
+                  <span className="text-xs bg-emerald-500/10 text-emerald-600 px-2 py-0.5 rounded-full">
+                    {analysis.row_count.toLocaleString()} rows
+                  </span>
+                </h2>
+                <p className="text-xs text-muted-foreground/70 mt-0.5">
+                  Successfully parsed {analysis.columns.length} columns
+                </p>
+              </div>
             </div>
+            
             <button 
-              onClick={() => { setAnalysis(null); setFile(null); }}
-              className="mt-4 md:mt-0 px-4 py-2 bg-secondary hover:bg-secondary/80 text-sm font-medium rounded-lg transition-colors"
+              onClick={resetUpload}
+              className="px-4 py-2 bg-muted/30 hover:bg-muted/50 text-sm font-medium rounded-xl transition-colors border border-border/50"
             >
-              Upload Another File
+              Upload New File
             </button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+          {/* Cards Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 auto-rows-fr">
             {analysis.columns.map((col) => 
               col.type === "numeric" ? renderNumericCard(col) : renderCategoricalCard(col)
             )}
